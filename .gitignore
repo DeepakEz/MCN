@@ -21,7 +21,9 @@ env/
 # Windows path artifacts
 nul
 C:MCN*
+"C:MCN*"
 results;C/
+results/
 
 # Logs
 *.log
