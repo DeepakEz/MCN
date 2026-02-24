@@ -1,0 +1,169 @@
+version: "3.8"
+
+# ============================================================
+# MCN Research-Grade Workstation Stack
+# ============================================================
+# Services:
+#   vllm       - GPU-based LLM inference (OpenAI-compatible API)
+#   redis      - State store (bandit matrices, patches, run logs)
+#   mcn-runner - MCN council, tribes, overseer, sandbox orchestrator
+#
+# Prerequisites:
+#   1. NVIDIA GPU with Docker runtime configured
+#   2. mcn-sandbox:v0.1 image built:
+#        docker build -t mcn-sandbox:v0.1 -f Dockerfile.sandbox .
+#   3. .env file with HF_TOKEN set (copy from .env.example)
+#
+# Usage:
+#   docker compose up --build          # build + run full stack
+#   docker compose up -d redis vllm    # start infra only
+#   docker compose logs -f mcn-runner  # watch MCN experiment
+# ============================================================
+
+services:
+  # --------------------------------------------------------
+  # vLLM: Local LLM inference on GPU
+  # --------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    # No host port needed — mcn-runner connects via internal Docker network
+    command: >
+      --model ${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
+      --max-model-len 4096
+      --gpu-memory-utilization 0.90
+      --dtype auto
+      --quantization awq
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s    # models can take 2-3 min to load
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # Redis: Persistent state store
+  # --------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    # No host port needed — mcn-runner connects via internal Docker network
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # ChromaDB: Persistent vector store (Phase 5)
+  # --------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # MLflow: Experiment tracking UI (Phase 5)
+  # --------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --allowed-hosts "*"
+    volumes:
+      - mlflow-data:/mlflow
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # MCN Runner: Council + Tribes + Overseer + Sandbox
+  # --------------------------------------------------------
+  mcn-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcn
+    depends_on:
+      vllm:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    # Load all config from .env first — any new MCN_* vars added to .env
+    # automatically flow into the container without touching this file.
+    env_file:
+      - .env
+    environment:
+      # These override .env values to use Docker-internal service hostnames
+      # (the .env file uses localhost URLs for standalone usage)
+      - GIT_PYTHON_REFRESH=quiet
+      - MCN_VLLM_URL=http://vllm:8000/v1
+      - MCN_REDIS_URL=redis://redis:6379/0
+      - MCN_USE_REDIS=true
+      - MCN_SANDBOX_TMPDIR=/dev/shm
+      - MCN_LOG_DIR=/results
+      - MCN_CHROMADB_URL=http://chromadb:8000
+      - MCN_CHROMADB_PERSIST_DIR=/results/chroma
+      - MCN_MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - mcn-results:/results
+    shm_size: "512m"    # ramdisk for sandbox I/O
+    command: ["python", "-u", "run_live_experiment.py", "-n", "100", "--log-dir", "/results", "--skip-checks", "--fresh"]
+    restart: "no"       # experiment runs once then exits
+
+volumes:
+  huggingface-cache:
+    name: mcn-hf-cache
+  redis-data:
+    name: mcn-redis-data
+  mcn-results:
+    name: mcn-results
+  chroma-data:
+    name: mcn-chroma-data
+  mlflow-data:
+    name: mcn-mlflow-data

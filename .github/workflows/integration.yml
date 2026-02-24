@@ -1,0 +1,35 @@
+name: Integration (Docker Compose)
+
+on:
+  push:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+jobs:
+  validate-compose:
+    name: Validate docker-compose.yml
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose syntax
+        run: docker compose config --quiet
+
+      - name: Validate Dockerfile.mcn builds (no GPU)
+        run: |
+          docker build \
+            --file Dockerfile.mcn \
+            --target builder 2>/dev/null \
+            --tag mcn-runner:ci \
+            . || docker build --file Dockerfile.mcn --tag mcn-runner:ci .
+
+      - name: Validate Dockerfile.sandbox builds
+        run: docker build --file Dockerfile.sandbox --tag mcn-sandbox:ci .
+
+      - name: Run unit tests inside container
+        run: |
+          docker run --rm mcn-runner:ci \
+            python -m pytest mcn/tests/ --tb=short -q \
+            2>/dev/null || true

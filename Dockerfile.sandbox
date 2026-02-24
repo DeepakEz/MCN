@@ -1,0 +1,7 @@
+FROM python:3.10-slim
+
+# Install pytest (the only dependency needed inside the sandbox)
+RUN pip install --no-cache-dir pytest hypothesis
+
+# Verify installation
+RUN python -m pytest --version

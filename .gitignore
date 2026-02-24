@@ -1,0 +1,30 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv*/
+venv/
+env/
+
+# Claude Code local config
+.claude/
+
+# Windows path artifacts
+nul
+C:MCN*
+results;C/
+
+# Logs
+*.log
+
+# MLflow local artifacts (large)
+mlruns/

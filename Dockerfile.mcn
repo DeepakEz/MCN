@@ -1,0 +1,58 @@
+FROM python:3.11-slim
+
+# Install system deps for Ray + curl for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies (Phase 1-4)
+RUN pip install --no-cache-dir \
+    ray[default]==2.44.1 \
+    numpy \
+    pytest \
+    hypothesis \
+    openai \
+    "redis[hiredis]" \
+    docker
+
+# Phase 5 dependencies: GNN (CPU-only torch), ChromaDB, MLflow
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir \
+    torch-geometric \
+    chromadb \
+    mlflow
+
+# Copy MCN source
+COPY mcn/ /app/mcn/
+COPY main.py /app/main.py
+COPY run_experiment.py /app/run_experiment.py
+COPY run_phase2_experiment.py /app/run_phase2_experiment.py
+COPY run_live_experiment.py /app/run_live_experiment.py
+COPY run_single_agent.py /app/run_single_agent.py
+COPY analyze_routing.py /app/analyze_routing.py
+COPY debug_llm_output.py /app/debug_llm_output.py
+COPY generate_paper.py /app/generate_paper.py
+
+WORKDIR /app
+
+# Create results directory
+RUN mkdir -p /results
+
+# Verify imports work (Phase 1-5)
+RUN python -c "\
+import ray; \
+from openai import OpenAI; \
+import redis; \
+import torch; \
+import torch_geometric; \
+import chromadb; \
+import mlflow; \
+from mcn.protocol import Task; \
+from mcn.util.bandit import LinUCB; \
+from mcn.memory import PatchRegistry; \
+from mcn.config import MCNConfig; \
+print('All imports OK')"
+
+# Default: run the Phase 2+3 demo (backward compatible)
+CMD ["python", "-u", "run_phase2_experiment.py"]
