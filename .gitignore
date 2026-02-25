@@ -18,10 +18,13 @@ env/
 # Claude Code local config
 .claude/
 
-# Windows path artifacts
+# Windows path artifacts (regular colon, full-width colon, quoted variants)
 nul
 C:MCN*
 "C:MCN*"
+C：MCN*
+"C：MCN*"
+C?MCN*
 results;C/
 results/
 
