@@ -141,8 +141,19 @@ class CouncilActor:
         # FailureEncoder: trace -> R^18 context vector
         self.failure_encoder = FailureEncoder(dim=CONTEXT_DIM)
 
-        # Router: GNN Graph Router (Phase 5) or LinUCB (default)
-        if MCNConfig.USE_GNN_ROUTER:
+        # Router: CategoryThompsonSampling > GNN Graph Router > LinUCB (default)
+        if MCNConfig.USE_THOMPSON_SAMPLING:
+            from mcn.util.bandit import CategoryThompsonSampling
+            self.bandit = CategoryThompsonSampling(
+                n_arms=self.n_tribes,
+                dim=CONTEXT_DIM,
+                alpha_prior=MCNConfig.TS_ALPHA_PRIOR,
+            )
+            logger.info(
+                "Using CategoryThompsonSampling router (alpha_prior=%.2f)",
+                MCNConfig.TS_ALPHA_PRIOR,
+            )
+        elif MCNConfig.USE_GNN_ROUTER:
             from mcn.util.gnn_router import GNNRouter
             self.bandit = GNNRouter(
                 n_arms=self.n_tribes,
@@ -401,10 +412,15 @@ class CouncilActor:
         # --- Step 1: Build context ---
         context = self._build_context(task)
 
-        # --- Step 2: Select tribe via LinUCB ---
+        # --- Step 2: Select tribe via router ---
         cooling_mask = [c == 0 for c in self._cooling_remaining]
         if not any(cooling_mask):
             cooling_mask = [True] * self.n_tribes
+
+        # Category-aware bandits (e.g. CategoryThompsonSampling) need the task
+        # type set before select so they can look up the right posterior slice.
+        if hasattr(self.bandit, "set_category"):
+            self.bandit.set_category(getattr(task, "function_name", ""))
 
         tribe_idx, ucb_scores = self.bandit.select_with_scores(
             context, mask=cooling_mask,
@@ -656,7 +672,11 @@ class CouncilActor:
     ) -> None:
         """Update the bandit, tick cooling, log, and persist."""
 
-        # Update LinUCB
+        # Restore category context for category-aware bandits before update
+        if hasattr(self.bandit, "set_category"):
+            self.bandit.set_category(getattr(task, "function_name", ""))
+
+        # Update bandit
         self.bandit.update(context, arm=tribe_idx, reward=result.reward)
 
         # Tick cooling timers

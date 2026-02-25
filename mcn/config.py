@@ -118,6 +118,17 @@ class MCNConfig:
     # Phase 5: GNN Graph Router
     # ------------------------------------------------------------------
     USE_GNN_ROUTER: bool = os.getenv("MCN_USE_GNN_ROUTER", "false").lower() == "true"
+
+    # ------------------------------------------------------------------
+    # Category-aware Thompson Sampling router
+    # Addresses oracle gap by maintaining per-(category, arm) Beta posteriors.
+    # Mutually exclusive with USE_GNN_ROUTER; takes priority if both set.
+    # Set MCN_USE_THOMPSON_SAMPLING=true to enable.
+    # ------------------------------------------------------------------
+    USE_THOMPSON_SAMPLING: bool = (
+        os.getenv("MCN_USE_THOMPSON_SAMPLING", "false").lower() == "true"
+    )
+    TS_ALPHA_PRIOR: float = float(os.getenv("MCN_TS_ALPHA_PRIOR", "1.0"))
     GNN_HIDDEN_DIM: int = int(os.getenv("MCN_GNN_HIDDEN_DIM", "32"))
     GNN_LR: float = float(os.getenv("MCN_GNN_LR", "0.01"))
     GNN_BUFFER_SIZE: int = int(os.getenv("MCN_GNN_BUFFER_SIZE", "64"))

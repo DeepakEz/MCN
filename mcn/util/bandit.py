@@ -353,3 +353,267 @@ class LinUCB:
             f"total_updates={self.total_updates}, explore_steps={self.explore_counts}, "
             f"counts={self.counts.tolist()})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task-type -> category mapping (single source of truth for bandit module)
+# ---------------------------------------------------------------------------
+
+TASK_CATEGORY_MAP: dict[str, str] = {
+    "sort_list": "data_structures", "deduplicate": "data_structures",
+    "flatten": "recursive", "partition": "data_structures",
+    "reverse_string": "string", "is_palindrome": "string",
+    "is_anagram": "string", "longest_unique": "string",
+    "word_count": "string", "invert_dict": "data_structures",
+    "running_sum": "iterative", "search_insert": "iterative",
+    "merge_intervals": "data_structures", "valid_brackets": "data_structures",
+    "has_cycle": "graph", "fibonacci": "iterative",
+    "climb_stairs": "dynamic_programming", "unique_paths": "dynamic_programming",
+    "lis": "dynamic_programming", "is_prime": "math",
+    "gcd": "math", "permutations": "recursive",
+    "factorial": "iterative", "digit_sum": "iterative",
+    "power_set": "recursive", "generate_parens": "recursive",
+    "nested_sum": "recursive", "max_subarray": "dynamic_programming",
+    "coin_change": "dynamic_programming", "topological_sort": "graph",
+    "count_components": "graph", "num_islands": "graph",
+    "is_bipartite": "graph", "compress_string": "string",
+    "roman_to_int": "parsing", "title_case": "parsing",
+    "camel_to_snake": "parsing", "count_vowels": "parsing",
+    "decode_run_length": "parsing", "lcm": "math",
+    "single_number": "math", "is_perfect_square": "math",
+}
+
+# Sorted canonical category list (index = category slot in posteriors)
+CATEGORIES: list[str] = sorted(set(TASK_CATEGORY_MAP.values()))
+# ['data_structures', 'dynamic_programming', 'graph', 'iterative',
+#  'math', 'parsing', 'recursive', 'string']
+
+
+# ---------------------------------------------------------------------------
+# Category-aware Thompson Sampling
+# ---------------------------------------------------------------------------
+
+class CategoryThompsonSampling:
+    """Category-aware Thompson Sampling bandit for binary rewards.
+
+    Maintains Beta(alpha[k,i], beta[k,i]) posteriors per (task category k, arm i).
+    At selection time, samples from the current category's Beta posteriors and
+    picks the arm with the highest sample.
+
+    Addresses the oracle gap of LinUCB by:
+      1. Maintaining separate uncertainty per category — no cross-category
+         interference that caused LinUCB to lock onto a single tribe.
+      2. Natural exploration via posterior sampling — no need for an epsilon
+         schedule or explicit UCB alpha that depends on the context dimension.
+      3. Binary reward mapping (reward > 0 -> success) — well-suited to
+         the pass/fail nature of code synthesis tasks.
+
+    Call set_category(task_type_or_category) before each select()/update() pair.
+
+    Args:
+        n_arms: Number of arms (tribes).
+        dim: Context dimensionality (kept for API compatibility with LinUCB).
+        alpha_prior: Beta prior pseudo-count (alpha = beta = alpha_prior).
+            Higher = more initial exploration (default 1.0 = uniform prior).
+    """
+
+    def __init__(
+        self,
+        n_arms: int,
+        dim: int,
+        alpha_prior: float = 1.0,
+        **kwargs,
+    ) -> None:
+        if n_arms <= 0:
+            raise ValueError(f"n_arms must be positive, got {n_arms}")
+        if dim <= 0:
+            raise ValueError(f"dim must be positive, got {dim}")
+
+        self.n_arms = n_arms
+        self.dim = dim
+        self.alpha = kwargs.get("alpha", 1.0)  # stored for repr / logging only
+
+        n_cats = len(CATEGORIES)
+        # Beta posterior parameters: shape (n_categories, n_arms)
+        self._alpha_prior = alpha_prior
+        self.alpha_k: NDArray[np.float64] = np.full(
+            (n_cats, n_arms), alpha_prior, dtype=np.float64
+        )
+        self.beta_k: NDArray[np.float64] = np.full(
+            (n_cats, n_arms), alpha_prior, dtype=np.float64
+        )
+
+        self._cat_idx: dict[str, int] = {c: i for i, c in enumerate(CATEGORIES)}
+        self._current_cat_idx: int = 0  # set by set_category()
+
+        self.counts: NDArray[np.int64] = np.zeros(n_arms, dtype=np.int64)
+        self.explore_counts: int = 0   # always 0 — TS has no explicit epsilon
+        self.total_updates: int = 0
+
+    # ------------------------------------------------------------------
+    # Category context (must be called before select / update)
+    # ------------------------------------------------------------------
+
+    def set_category(self, task_type_or_category: str) -> None:
+        """Set current task context before calling select() or update().
+
+        Accepts either a task_type key (e.g. 'fibonacci') or a category name
+        (e.g. 'iterative'). Maps via TASK_CATEGORY_MAP if needed.
+        Falls back to index 0 for unknown inputs.
+        """
+        cat = TASK_CATEGORY_MAP.get(task_type_or_category, task_type_or_category)
+        self._current_cat_idx = self._cat_idx.get(cat, 0)
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
+    def select(
+        self,
+        context: NDArray[np.floating],
+        mask: Optional[list[bool]] = None,
+    ) -> int:
+        """Sample from Beta posteriors for the current category and pick best arm.
+
+        Args:
+            context: Ignored (kept for API compatibility with LinUCB).
+            mask: Boolean list of length n_arms. True = available.
+        """
+        k = self._current_cat_idx
+        if mask is None:
+            mask = [True] * self.n_arms
+        if not any(mask):
+            raise ValueError("All arms are masked — no tribe available")
+
+        available = [i for i in range(self.n_arms) if mask[i]]
+        samples = np.array([
+            np.random.beta(self.alpha_k[k, i], self.beta_k[k, i])
+            for i in available
+        ])
+        return available[int(np.argmax(samples))]
+
+    def select_with_scores(
+        self,
+        context: NDArray[np.floating],
+        mask: Optional[list[bool]] = None,
+    ) -> tuple[int, NDArray[np.float64]]:
+        """Select arm via Thompson sampling; return posterior means as scores.
+
+        Returns:
+            (selected_arm, scores) where scores[i] = posterior mean for arm i,
+            or -inf if masked.
+        """
+        k = self._current_cat_idx
+        if mask is None:
+            mask = [True] * self.n_arms
+        if not any(mask):
+            mask = [True] * self.n_arms
+
+        available = [i for i in range(self.n_arms) if mask[i]]
+        # Posterior means as interpretable scores
+        scores = np.full(self.n_arms, -np.inf, dtype=np.float64)
+        for i in available:
+            scores[i] = self.alpha_k[k, i] / (self.alpha_k[k, i] + self.beta_k[k, i])
+
+        # Thompson sample
+        samples = np.array([
+            np.random.beta(self.alpha_k[k, i], self.beta_k[k, i])
+            for i in available
+        ])
+        chosen = available[int(np.argmax(samples))]
+        return chosen, scores
+
+    # ------------------------------------------------------------------
+    # Update
+    # ------------------------------------------------------------------
+
+    def update(
+        self,
+        context: NDArray[np.floating],
+        arm: int,
+        reward: float,
+    ) -> None:
+        """Update Beta posterior based on binary outcome.
+
+        Maps reward to binary: reward > 0 -> success (alpha++), else failure (beta++).
+
+        Args:
+            context: Ignored (kept for API compatibility with LinUCB).
+            arm: Index of the arm that was pulled.
+            reward: Observed reward (positive = PASS, negative = FAIL).
+        """
+        k = self._current_cat_idx
+        if arm < 0 or arm >= self.n_arms:
+            raise ValueError(f"arm index {arm} out of range [0, {self.n_arms})")
+
+        if reward > 0.0:
+            self.alpha_k[k, arm] += 1.0
+        else:
+            self.beta_k[k, arm] += 1.0
+
+        self.counts[arm] += 1
+        self.total_updates += 1
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
+    def get_uncertainty(self, arm: int) -> float:
+        """Return Beta posterior variance for current category and given arm."""
+        k = self._current_cat_idx
+        a, b = self.alpha_k[k, arm], self.beta_k[k, arm]
+        return float((a * b) / ((a + b) ** 2 * (a + b + 1)))
+
+    def get_theta(self, arm: int) -> NDArray[np.float64]:
+        """Return per-category posterior means for an arm (shape: n_categories)."""
+        return self.alpha_k[:, arm] / (self.alpha_k[:, arm] + self.beta_k[:, arm])
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def state_dict(self) -> dict:
+        return {
+            "type": "category_thompson",
+            "n_arms": self.n_arms,
+            "dim": self.dim,
+            "alpha_prior": self._alpha_prior,
+            "alpha_k": self.alpha_k.tolist(),
+            "beta_k": self.beta_k.tolist(),
+            "counts": self.counts.tolist(),
+            "total_updates": self.total_updates,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: dict) -> "CategoryThompsonSampling":
+        ts = cls(
+            n_arms=d["n_arms"],
+            dim=d["dim"],
+            alpha_prior=d.get("alpha_prior", 1.0),
+        )
+        ts.alpha_k = np.array(d["alpha_k"], dtype=np.float64)
+        ts.beta_k = np.array(d["beta_k"], dtype=np.float64)
+        ts.counts = np.array(d["counts"], dtype=np.int64)
+        ts.total_updates = d["total_updates"]
+        return ts
+
+    def save(self, path: str | Path) -> None:
+        with open(path, "w") as f:
+            json.dump(self.state_dict(), f)
+
+    @classmethod
+    def load(cls, path: str | Path) -> "CategoryThompsonSampling":
+        with open(path) as f:
+            return cls.from_state_dict(json.load(f))
+
+    def __repr__(self) -> str:
+        k = self._current_cat_idx
+        means = [
+            f"{self.alpha_k[k,i]/(self.alpha_k[k,i]+self.beta_k[k,i]):.3f}"
+            for i in range(self.n_arms)
+        ]
+        return (
+            f"CategoryThompsonSampling(n_arms={self.n_arms}, "
+            f"cat={CATEGORIES[k]}, posterior_means={means}, "
+            f"total_updates={self.total_updates}, counts={self.counts.tolist()})"
+        )
