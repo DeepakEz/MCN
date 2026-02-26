@@ -24,6 +24,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.ticker
 import numpy as np
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
@@ -170,7 +171,8 @@ def fig_routing_convergence(runs2: list[dict], runs1c: list[dict]) -> str:
         for t in range(3):
             lbl = f"T{t} (temp={TRIBE_TEMPS[t]})" if runs is runs2 else f"T{t}"
             ax.plot(xs, shares[t], color=TRIBE_COLORS[t], lw=1.8, label=lbl)
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0, 1.08)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0%}"))
         ax.set_xlabel("Task index")
         ax.set_ylabel("Routing share (rolling 200)")
         ax.set_title(title, fontsize=10)

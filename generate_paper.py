@@ -447,51 +447,6 @@ those conditions, the category-level heterogeneity documented in Phase 1B \
 opportunity: categories where model capability is partial and tribe-level \
 variance could in principle be exploited."""),
 
-("F. Phase 1C: 2000-Task Longitudinal Experiment (LinUCB)",
-"""\
-Phase 1C scales the stratified evaluation to 2,000 tasks (8×250 per category) \
-using the LinUCB router (alpha=2.5, epsilon=0.3, decay=0.99). Overall pass \
-rate: 1,214/2,000 = 60.7%, unchanged from Phase 1B (61.2%), confirming that \
-additional tasks provide no benefit when tribes are homogeneous.
-
-Spurious convergence is confirmed at scale. T0 routing share by 500-task \
-window: 27% → 75% → 94% → 96%. The bandit reaches nominal lock-in by task \
-~1,700 despite T0=60.8%, T1=59.9%, T2=61.8% — all within 2 pp. The locked \
-arm (T0) is not the best arm (T2 is marginally higher at 61.8%), confirming \
-the convergence is driven by early random variance, not learned preference.
-
-Parsing regression analysis (Phase 1B 65.5% → Phase 1C 58.8%) was traced \
-to two task types: roman_to_int (0%, KeyError in format mapping) and \
-decode_run_length (0%, ValueError in string split). Three other parsing tasks \
-(title_case=100%, count_vowels=100%, camel_to_snake=94%) were unaffected. \
-This is a format-compliance failure, not a routing problem, and not \
-a systematic regression."""),
-
-("G. Phase 1D: GNN vs. LinUCB Router Comparison at Scale",
-"""\
-Phase 1D repeats the 2,000-task experiment with the GNN router \
-(hidden_dim=32, lr=0.01, buffer=64, batch=8). Table VI presents the \
-head-to-head comparison (see also Table VII for strategy breakdown).
-
-Overall: 1,212/2,000 = 60.6% — a −0.1 pp delta vs. LinUCB. All \
-per-category deltas lie within ±3.6 pp, consistent with sampling noise \
-for 250-task buckets (sigma ≈ 3.2 pp). No systematic GNN advantage or \
-disadvantage is detected in any category.
-
-The GNN locks onto T0 faster (72% total routing share vs. 55% for \
-LinUCB) and converges earlier (~task 800 vs. ~task 1,700). The GNN's \
-mini-batch updates on an 8-entry replay buffer push it to commit earlier \
-to the same spurious fixed point. Faster lock-in is a net disadvantage: \
-the GNN sacrifices exploratory signal that LinUCB retains longer but \
-equally fails to exploit.
-
-A retrospective simulation on Phase 1C data tests four routing strategies \
-(Table VII). Category Thompson Sampling (CTS) achieves 63.2% (+2.5 pp vs. \
-LinUCB), with the largest gain in math: +12.0 pp (empirical T1=98.4% vs. \
-T0=75.7%). Notably, random routing (62.4%) outperforms LinUCB (60.7%), \
-confirming the bandit's exploration schedule imposes a net cost relative to \
-the uniform baseline. The oracle ceiling is 65.4%."""),
-
 ("D. Router Sophistication Is Scale-Invariant",
 """\
 The canonical assumption in contextual bandit literature is that more \
@@ -516,39 +471,6 @@ tribe, not from genuine model diversity. With heterogeneous base models or \
 fine-tuning targets, category-level performance splits of this magnitude \
 could be reliably exploited by a category-aware bandit."""),
 
-("H. Phase 2: Temperature-Heterogeneous Tribes + Live CTS Router",
-"""\
-Phase 2 extends the homogeneity hypothesis test to temperature-diverse tribes. \
-Three tribes are assigned temperatures T0=0.1 (deterministic), T1=0.5 \
-(balanced), T2=0.9 (exploratory), with the live CategoryThompsonSampling \
-(CTS) router. The experiment runs 1,502 tasks (8×~188 stratified). \
-Table VIII presents the comparison with Phase 1C.
-
-Overall pass rate: 911/1,502 = 60.7% — identical to Phase 1C LinUCB. \
-Per-tribe routing converged to T2 (52.3% share), but per-tribe pass rates \
-(T0=60.4%, T1=59.3%, T2=61.3%) differ by at most 2.0 pp, indistinguishable \
-from sampling noise (sigma ≈ 3.2 pp for 188-task buckets).
-
-The oracle gap narrows from 5.1 pp (Phase 1C) to 3.7 pp (Phase 2). \
-A smaller oracle gap indicates that tribe outputs are more similar, \
-not that the router is better: with lower inter-tribe variance, even \
-perfect hindsight routing achieves less improvement. This is the opposite \
-of the desired outcome.
-
-CTS routing drift reveals non-trivial learning dynamics absent in LinUCB/GNN. \
-The 500-task windows show T1=41%→T0=42%→T2=68% routing shares — CTS \
-oscillates between tribes before settling on T2, whereas LinUCB commits to \
-T0 irreversibly by task ~1,700. Despite correct Bayesian updating, the learned \
-routing preference produces no aggregate gain because the per-(category, arm) \
-Beta posterior means remain within noise.
-
-Category pass rates are stable across phases: string 96.2%, math 91.8%, \
-data_structures 85.4%, dynamic_programming 72.6%, parsing 56.8%, \
-iterative 48.4%, recursive 38.1%, graph 0.0%. The graph ceiling and the \
-parsing failure cluster (roman_to_int=0%, decode_run_length=0%) persist \
-independently of tribe temperature, confirming these are model-capability \
-and prompt-compliance failures, not routing artefacts."""),
-
 ("E. Temperature Diversity Does Not Create Routing Signal",
 """\
 Phase 2 tests the weakest form of tribe diversity achievable without \
@@ -566,7 +488,7 @@ but leaves the mean unchanged. Concretely, a 7B model that does not know how \
 to represent a graph as a boolean adjacency matrix will fail at temperature \
 0.1 and temperature 0.9 alike.
 
-The oracle gap reduction (5.1 pp → 3.7 pp) confirms this directly: reducing \
+The oracle gap reduction (5.1 pp to 3.7 pp) confirms this directly: reducing \
 inter-tribe variance reduces the maximum achievable routing gain, which is \
 bounded by E[max_i R_i(task)] - E[R_mean(task)]. Temperature diversity \
 moves this bound in the wrong direction.
@@ -578,6 +500,84 @@ not merely in their sampling hyperparameters. Future experiments should \
 therefore use genuinely different models (e.g., a code-specialist, a \
 reasoning-specialist, and a general-purpose model) rather than temperature \
 variants of the same checkpoint."""),
+
+("F. Phase 1C: 2000-Task Longitudinal Experiment (LinUCB)",
+"""\
+Phase 1C scales the stratified evaluation to 2,000 tasks (8x250 per category) \
+using the LinUCB router (alpha=2.5, epsilon=0.3, decay=0.99). Overall pass \
+rate: 1,214/2,000 = 60.7%, unchanged from Phase 1B (61.2%), confirming that \
+additional tasks provide no benefit when tribes are homogeneous.
+
+Spurious convergence is confirmed at scale. T0 routing share by 500-task \
+window: 27% to 75% to 94% to 96%. The bandit reaches nominal lock-in by task \
+~1,700 despite T0=60.8%, T1=59.9%, T2=61.8% — all within 2 pp. The locked \
+arm (T0) is not the best arm (T2 is marginally higher at 61.8%), confirming \
+the convergence is driven by early random variance, not learned preference.
+
+Parsing regression analysis (Phase 1B 65.5% to Phase 1C 58.8%) was traced \
+to two task types: roman_to_int (0%, KeyError in format mapping) and \
+decode_run_length (0%, ValueError in string split). Three other parsing tasks \
+(title_case=100%, count_vowels=100%, camel_to_snake=94%) were unaffected. \
+This is a format-compliance failure, not a routing problem, and not \
+a systematic regression."""),
+
+("G. Phase 1D: GNN vs. LinUCB Router Comparison at Scale",
+"""\
+Phase 1D repeats the 2,000-task experiment with the GNN router \
+(hidden_dim=32, lr=0.01, buffer=64, batch=8). Table VI presents the \
+head-to-head comparison (see also Table VII for strategy breakdown).
+
+Overall: 1,212/2,000 = 60.6% — a -0.1 pp delta vs. LinUCB. All \
+per-category deltas lie within +-3.6 pp, consistent with sampling noise \
+for 250-task buckets (sigma ~3.2 pp). No systematic GNN advantage or \
+disadvantage is detected in any category.
+
+The GNN locks onto T0 faster (72% total routing share vs. 55% for \
+LinUCB) and converges earlier (~task 800 vs. ~task 1,700). The GNN's \
+mini-batch updates on an 8-entry replay buffer push it to commit earlier \
+to the same spurious fixed point. Faster lock-in is a net disadvantage: \
+the GNN sacrifices exploratory signal that LinUCB retains longer but \
+equally fails to exploit.
+
+A retrospective simulation on Phase 1C data tests four routing strategies \
+(Table VII). Category Thompson Sampling (CTS) achieves 63.2% (+2.5 pp vs. \
+LinUCB), with the largest gain in math: +12.0 pp (empirical T1=98.4% vs. \
+T0=75.7%). Notably, random routing (62.4%) outperforms LinUCB (60.7%), \
+confirming the bandit's exploration schedule imposes a net cost relative to \
+the uniform baseline. The oracle ceiling is 65.4%."""),
+
+("H. Phase 2: Temperature-Heterogeneous Tribes + Live CTS Router",
+"""\
+Phase 2 extends the homogeneity hypothesis test to temperature-diverse tribes. \
+Three tribes are assigned temperatures T0=0.1 (deterministic), T1=0.5 \
+(balanced), T2=0.9 (exploratory), with the live CategoryThompsonSampling \
+(CTS) router. The experiment runs 1,502 tasks (8x~188 stratified). \
+Table VIII presents the comparison with Phase 1C.
+
+Overall pass rate: 911/1,502 = 60.7% — identical to Phase 1C LinUCB. \
+Per-tribe routing converged to T2 (52.3% share), but per-tribe pass rates \
+(T0=60.4%, T1=59.3%, T2=61.3%) differ by at most 2.0 pp, indistinguishable \
+from sampling noise (sigma ~3.2 pp for 188-task buckets).
+
+The oracle gap narrows from 5.1 pp (Phase 1C) to 3.7 pp (Phase 2). \
+A smaller oracle gap indicates that tribe outputs are more similar, \
+not that the router is better: with lower inter-tribe variance, even \
+perfect hindsight routing achieves less improvement. This is the opposite \
+of the desired outcome.
+
+CTS routing drift reveals non-trivial learning dynamics absent in LinUCB/GNN. \
+The 500-task windows show T1=41%, T0=42%, T2=68% routing shares — CTS \
+oscillates between tribes before settling on T2, whereas LinUCB commits to \
+T0 irreversibly by task ~1,700. Despite correct Bayesian updating, the learned \
+routing preference produces no aggregate gain because the per-(category, arm) \
+Beta posterior means remain within noise.
+
+Category pass rates are stable across phases: string 96.2%, math 91.8%, \
+data_structures 85.4%, dynamic_programming 72.6%, parsing 56.8%, \
+iterative 48.4%, recursive 38.1%, graph 0.0%. The graph ceiling and the \
+parsing failure cluster (roman_to_int=0%, decode_run_length=0%) persist \
+independently of tribe temperature, confirming these are model-capability \
+and prompt-compliance failures, not routing artefacts."""),
 
 ("VII. CONCLUSIONS",
 """\
@@ -764,12 +764,12 @@ TABLE8_ROWS    = [
     ["T1 pass rate",       "59.9%",    "59.3%",    "−0.6 pp"],
     ["T2 pass rate",       "61.8%",    "61.3%",    "−0.5 pp"],
     ["Max inter-tribe gap","1.9 pp",   "2.0 pp",   "≈ same"],
-    ["Convergence pattern","Lock T0 (~t=1700)", "Oscillate T1→T0→T2", "CTS avoids lock"],
+    ["Convergence pattern","Lock T0 (~t=1700)", "Oscillate T1->T0->T2", "CTS avoids lock"],
     ["Graph pass rate",    "0%",       "0%",       "persists"],
     ["String pass rate",   "99%",      "96.2%",    "≈ same"],
 ]
 TABLE8_NOTE    = ("Oracle gap decrease indicates tribes became more similar under temperature diversity, "
-                  "not that routing improved. CTS routing drift (T1→T0→T2 oscillation) reflects correct "
+                  "not that routing improved. CTS routing drift (T1->T0->T2 oscillation) reflects correct "
                   "Bayesian updating; the reward signal is insufficient because temperature diversity "
                   "does not create capability diversity. Phase 2: 1,502 tasks (OOM restart at t=1,490).")
 
