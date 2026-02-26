@@ -34,7 +34,7 @@ services:
     # No host port needed — mcn-runner connects via internal Docker network
     command: >
       --model ${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
-      --max-model-len 4096
+      --max-model-len 2048
       --gpu-memory-utilization ${MCN_VLLM_GPU_UTIL:-0.55}
       --dtype auto
       --quantization awq
@@ -70,10 +70,12 @@ services:
       - huggingface-cache:/root/.cache/huggingface
     command: >
       --model ${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct}
-      --max-model-len 4096
-      --gpu-memory-utilization ${MCN_VLLM_SMALL_GPU_UTIL:-0.40}
+      --max-model-len 1536
+      --gpu-memory-utilization ${MCN_VLLM_SMALL_GPU_UTIL:-0.30}
       --dtype auto
       --trust-remote-code
+      --enforce-eager
+      --max-num-seqs 2
     deploy:
       resources:
         reservations:
