@@ -68,21 +68,25 @@ PAPER_AFFIL   = "Anonymous Submission — February 2026"
 IEEE_ABSTRACT = (
     "We empirically study whether a learned router can improve upon the best "
     "single-agent baseline when a council of LLM agents shares the same base "
-    "model. Over ten experimental runs, three controlled ablations, and two "
-    "2,000-task longitudinal experiments using Qwen2.5-Coder-7B-Instruct-AWQ "
-    "on an 8-category Python benchmark, we find a consistent null result: "
-    "router sophistication does not improve performance with homogeneous tribes. "
+    "model. Over ten experimental runs, three controlled ablations, two "
+    "2,000-task longitudinal experiments, and a temperature-heterogeneous "
+    "Phase 2 trial using Qwen2.5-Coder-7B-Instruct-AWQ on an 8-category "
+    "Python benchmark, we find a consistent null result: neither router "
+    "sophistication nor temperature diversity improves performance. "
     "A single agent at T=0.3 achieves 91%; MCN-LinUCB scores 86% (−5 pp). "
     "At 2,000 tasks LinUCB achieves 60.7% and a GNN router — with 40x more "
-    "parameters — achieves 60.6% (delta = −0.1 pp). Both routers exhibit "
-    "spurious convergence to a single tribe; per-tribe pass rates (T0=60.8%, "
-    "T1=59.9%, T2=61.8%) remain statistically indistinguishable. "
-    "Category-level heterogeneity dominates: string 99%, graph 0% (hard "
-    "model-capability limit), corrected pass rate excluding graph = 81.3%. "
-    "Retrospective simulation shows Category Thompson Sampling would achieve "
-    "63.2% (+2.5 pp), with math gaining +12 pp — but only if tribe diversity "
-    "creates a learnable signal. We conclude that routing value requires "
-    "genuine inter-tribe performance variance, not algorithmic sophistication."
+    "parameters — achieves 60.6% (delta = −0.1 pp). Phase 2 introduces "
+    "heterogeneous tribe temperatures (T0=0.1, T1=0.5, T2=0.9) with a live "
+    "Category Thompson Sampling router: overall pass rate is 60.7%, identical "
+    "to Phase 1C, with per-tribe rates within 2 pp (T0=60.4%, T1=59.3%, "
+    "T2=61.3%). The oracle gap narrows from 5.1 pp to 3.7 pp. CTS learns "
+    "per-category routing preferences (oscillating T1→T0→T2 drift) but "
+    "cannot improve aggregate performance because temperature diversity "
+    "does not create capability diversity. Category-level heterogeneity "
+    "dominates throughout: string 99%, graph 0%, corrected pass rate "
+    "excluding graph = 81.3%. We conclude that routing value requires "
+    "genuine inter-model performance variance, not sampling or algorithmic "
+    "sophistication."
 )
 
 IEEE_KEYWORDS = (
@@ -512,6 +516,69 @@ tribe, not from genuine model diversity. With heterogeneous base models or \
 fine-tuning targets, category-level performance splits of this magnitude \
 could be reliably exploited by a category-aware bandit."""),
 
+("H. Phase 2: Temperature-Heterogeneous Tribes + Live CTS Router",
+"""\
+Phase 2 extends the homogeneity hypothesis test to temperature-diverse tribes. \
+Three tribes are assigned temperatures T0=0.1 (deterministic), T1=0.5 \
+(balanced), T2=0.9 (exploratory), with the live CategoryThompsonSampling \
+(CTS) router. The experiment runs 1,502 tasks (8×~188 stratified). \
+Table VIII presents the comparison with Phase 1C.
+
+Overall pass rate: 911/1,502 = 60.7% — identical to Phase 1C LinUCB. \
+Per-tribe routing converged to T2 (52.3% share), but per-tribe pass rates \
+(T0=60.4%, T1=59.3%, T2=61.3%) differ by at most 2.0 pp, indistinguishable \
+from sampling noise (sigma ≈ 3.2 pp for 188-task buckets).
+
+The oracle gap narrows from 5.1 pp (Phase 1C) to 3.7 pp (Phase 2). \
+A smaller oracle gap indicates that tribe outputs are more similar, \
+not that the router is better: with lower inter-tribe variance, even \
+perfect hindsight routing achieves less improvement. This is the opposite \
+of the desired outcome.
+
+CTS routing drift reveals non-trivial learning dynamics absent in LinUCB/GNN. \
+The 500-task windows show T1=41%→T0=42%→T2=68% routing shares — CTS \
+oscillates between tribes before settling on T2, whereas LinUCB commits to \
+T0 irreversibly by task ~1,700. Despite correct Bayesian updating, the learned \
+routing preference produces no aggregate gain because the per-(category, arm) \
+Beta posterior means remain within noise.
+
+Category pass rates are stable across phases: string 96.2%, math 91.8%, \
+data_structures 85.4%, dynamic_programming 72.6%, parsing 56.8%, \
+iterative 48.4%, recursive 38.1%, graph 0.0%. The graph ceiling and the \
+parsing failure cluster (roman_to_int=0%, decode_run_length=0%) persist \
+independently of tribe temperature, confirming these are model-capability \
+and prompt-compliance failures, not routing artefacts."""),
+
+("E. Temperature Diversity Does Not Create Routing Signal",
+"""\
+Phase 2 tests the weakest form of tribe diversity achievable without \
+changing the base model: different sampling temperatures. The result \
+is a complete null: 60.7% with CTS + temperature-diverse tribes equals \
+60.7% with LinUCB + homogeneous tribes.
+
+The information-theoretic explanation is as follows. Sampling temperature \
+shifts the output distribution of the same underlying model: high temperature \
+increases entropy over the token distribution but does not change which \
+concepts or algorithms the model knows. For any given task, the conditional \
+probability of a correct solution P(correct | task, model) is fixed by the \
+model's weights; temperature scales the variance of outputs around this mean \
+but leaves the mean unchanged. Concretely, a 7B model that does not know how \
+to represent a graph as a boolean adjacency matrix will fail at temperature \
+0.1 and temperature 0.9 alike.
+
+The oracle gap reduction (5.1 pp → 3.7 pp) confirms this directly: reducing \
+inter-tribe variance reduces the maximum achievable routing gain, which is \
+bounded by E[max_i R_i(task)] - E[R_mean(task)]. Temperature diversity \
+moves this bound in the wrong direction.
+
+This result closes the temperature-diversity hypothesis with a decisive null \
+and sharpens the minimal condition for routing value: tribes must differ in \
+their underlying model weights, fine-tuning targets, or capability profiles — \
+not merely in their sampling hyperparameters. Future experiments should \
+therefore use genuinely different models (e.g., a code-specialist, a \
+reasoning-specialist, and a general-purpose model) rather than temperature \
+variants of the same checkpoint."""),
+
 ("VII. CONCLUSIONS",
 """\
 We have conducted ten experimental runs, three controlled ablations, and two \
@@ -552,14 +619,25 @@ algorithm can learn from a flat reward landscape.
   (8) Category Thompson Sampling is the correct next router. Retrospective \
 simulation yields +2.5 pp (+12 pp on math) over LinUCB. CTS maintains \
 per-(category, arm) Beta posteriors, preventing the cross-category signal \
-contamination that causes spurious LinUCB/GNN convergence. A live CTS \
-experiment with genuinely diverse tribes is the highest-priority next step.
+contamination that causes spurious LinUCB/GNN convergence.
 
-Future directions: (A) heterogeneous tribes — different base models or \
-fine-tuning targets to create genuine inter-tribe variance; (B) live CTS \
-experiment (MCN_USE_THOMPSON_SAMPLING=true) to validate the +2.5 pp \
-simulation estimate; (C) graph-fixed benchmark with output-format-constrained \
-prompts to measure the 81.3% corrected ceiling under better task design."""),
+  (9) Temperature diversity does not create routing signal. Phase 2 deploys \
+live CTS with temperature-heterogeneous tribes (T0=0.1, T1=0.5, T2=0.9): \
+overall pass rate is 60.7% — identical to Phase 1C. Per-tribe rates span \
+only 2.0 pp (T0=60.4%, T1=59.3%, T2=61.3%). The oracle gap narrows from \
+5.1 pp to 3.7 pp, moving in the wrong direction. CTS learns routing \
+preferences (oscillating T1→T0→T2 drift) but cannot improve aggregate \
+performance because temperature shifts output variance, not model capability. \
+The minimal condition for routing value is inter-model capability diversity, \
+not sampling or algorithmic sophistication.
+
+Future directions: (A) heterogeneous base models — routing between a \
+code-specialist, reasoning-specialist, and general-purpose 7B model to \
+create genuine inter-tribe performance variance; (B) graph-fixed benchmark \
+with output-format-constrained prompts to measure the 81.3% corrected \
+ceiling under better task design; (C) per-category fine-tuning — train \
+separate LoRA adapters per category to create specialised tribes on the \
+same base checkpoint."""),
 ]
 
 # ── TABLE I: Five-condition comparison (compact, fits in 3.5" column) ─────────
@@ -672,6 +750,28 @@ TABLE7_NOTE    = ("Category TS simulation uses imputed rewards from empirical pe
                   "rates for counterfactual arm selections. Random > LinUCB confirms the bandit's "
                   "exploration schedule imposes a net cost vs. uniform baseline with homogeneous tribes. "
                   "Math +12 pp for CTS arises from empirical T1=98.4% vs. T0=75.7% (250 tasks each).")
+
+# ── TABLE VIII: Phase 1C vs Phase 2 (heterogeneous temperatures) ───────────
+TABLE8_CAPTION = "TABLE VIII\nPHASE 1C vs. PHASE 2: EFFECT OF TEMPERATURE DIVERSITY (CTS ROUTER)"
+TABLE8_HEADER  = ["Metric", "Phase 1C\n(LinUCB+Homo)", "Phase 2\n(CTS+Hetero)", "Delta"]
+TABLE8_ROWS    = [
+    ["Tasks",              "2,000",    "1,502",    "—"],
+    ["Overall pass rate",  "60.7%",    "60.7%",    "0.0 pp"],
+    ["Oracle (per-cat)",   "65.8%",    "64.3%",    "−1.5 pp"],
+    ["Oracle gap",         "5.1 pp",   "3.7 pp",   "−1.4 pp"],
+    ["Dominant tribe",     "T0 (55%)", "T2 (52%)", "shifted"],
+    ["T0 pass rate",       "60.8%",    "60.4%",    "−0.4 pp"],
+    ["T1 pass rate",       "59.9%",    "59.3%",    "−0.6 pp"],
+    ["T2 pass rate",       "61.8%",    "61.3%",    "−0.5 pp"],
+    ["Max inter-tribe gap","1.9 pp",   "2.0 pp",   "≈ same"],
+    ["Convergence pattern","Lock T0 (~t=1700)", "Oscillate T1→T0→T2", "CTS avoids lock"],
+    ["Graph pass rate",    "0%",       "0%",       "persists"],
+    ["String pass rate",   "99%",      "96.2%",    "≈ same"],
+]
+TABLE8_NOTE    = ("Oracle gap decrease indicates tribes became more similar under temperature diversity, "
+                  "not that routing improved. CTS routing drift (T1→T0→T2 oscillation) reflects correct "
+                  "Bayesian updating; the reward signal is insufficient because temperature diversity "
+                  "does not create capability diversity. Phase 2: 1,502 tasks (OOM restart at t=1,490).")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1018,6 +1118,14 @@ def build_paper_pdf(path: str):
                 TABLE7_CAPTION, TABLE7_HEADER, TABLE7_ROWS, cw7, S,
                 note=TABLE7_NOTE, highlight_row=3))   # CTS row
 
+        # After Phase 2 section → TABLE VIII (temperature diversity comparison)
+        if heading == "H. Phase 2: Temperature-Heterogeneous Tribes + Live CTS Router":
+            story.append(Spacer(1, 4))
+            cw8 = [1.35*inch, 0.90*inch, 0.90*inch, 0.85*inch]
+            story.extend(_ieee_table(
+                TABLE8_CAPTION, TABLE8_HEADER, TABLE8_ROWS, cw8, S,
+                note=TABLE8_NOTE, highlight_row=1))   # Overall pass rate row
+
     # ── Footer ──────────────────────────────────────────────────────────────
     story.append(Spacer(1, 6))
     story.append(HRFlowable(width="100%", thickness=0.6, color=BLACK, spaceAfter=2))
@@ -1197,6 +1305,9 @@ def build_paper_docx(path: str):
     doc.add_paragraph()
     _docx_ieee_table(doc, TABLE7_CAPTION, TABLE7_HEADER, TABLE7_ROWS,
                      note=TABLE7_NOTE, font_size=7, highlight_row=3)
+    doc.add_paragraph()
+    _docx_ieee_table(doc, TABLE8_CAPTION, TABLE8_HEADER, TABLE8_ROWS,
+                     note=TABLE8_NOTE, font_size=7, highlight_row=1)
     doc.add_paragraph()
 
     # ── Continuous section break → two-column body ─────────────────────────
