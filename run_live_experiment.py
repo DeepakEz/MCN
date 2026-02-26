@@ -1514,35 +1514,51 @@ def main() -> None:
 
     # Per-tribe temperature: use TRIBE_TEMPERATURES[i] if configured and valid,
     # otherwise fall back to the global TRIBE_TEMPERATURE for all tribes.
-    # Different temperatures create genuine behavioural heterogeneity that the
-    # GNN router (or LinUCB) can learn to exploit: low-T tribes are deterministic
-    # (good for well-specified tasks), high-T tribes are creative (good for tasks
-    # where the low-T tribe is consistently wrong).
     def _tribe_temp(i: int) -> float:
         temps = MCNConfig.TRIBE_TEMPERATURES
         if len(temps) == MCNConfig.NUM_TRIBES:
             return temps[i]
         return MCNConfig.TRIBE_TEMPERATURE
 
+    # Per-tribe vLLM URL: use TRIBE_URLS[i] if configured (Phase 3 multi-model),
+    # otherwise all tribes share the global VLLM_BASE_URL.
+    def _tribe_url(i: int) -> str:
+        urls = MCNConfig.TRIBE_URLS
+        if len(urls) == MCNConfig.NUM_TRIBES:
+            return urls[i]
+        return MCNConfig.VLLM_BASE_URL
+
+    # Per-tribe model name: use TRIBE_MODELS[i] if configured (Phase 3),
+    # otherwise all tribes share the global VLLM_MODEL.
+    def _tribe_model(i: int) -> str:
+        models = MCNConfig.TRIBE_MODELS
+        if len(models) == MCNConfig.NUM_TRIBES:
+            return models[i]
+        return MCNConfig.VLLM_MODEL
+
     tribes = []
     for i in range(MCNConfig.NUM_TRIBES):
         prompt = MCNConfig.TRIBE_PROMPTS[i] if i < len(MCNConfig.TRIBE_PROMPTS) else f"You are tribe {i}."
         temp = _tribe_temp(i)
+        url = _tribe_url(i)
+        mdl = _tribe_model(i)
         tribes.append(
             TribeActor.remote(
                 tribe_id=f"tribe_{i}",
                 system_prompt=prompt,
-                model=MCNConfig.VLLM_MODEL,
+                model=mdl,
                 temperature=temp,
                 max_tokens=MCNConfig.TRIBE_MAX_TOKENS,
                 use_mock=use_mock,
                 failure_bias="",  # no bias in live mode
+                vllm_base_url=url,
             )
         )
         if use_mock:
             print(f"  Tribe {i}: MOCK")
         else:
-            print(f"  Tribe {i}: {MCNConfig.VLLM_MODEL}")
+            model_short = mdl.split("/")[-1]
+            print(f"  Tribe {i}: {model_short} @ {url} (temp={temp:.1f})")
 
     overseer = OverseerActor.remote()
 

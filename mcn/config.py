@@ -46,6 +46,21 @@ class MCNConfig:
     TRIBE_TEMPERATURE: float = float(os.getenv("MCN_TRIBE_TEMPERATURE", "0.3"))
     TRIBE_MAX_TOKENS: int = int(os.getenv("MCN_TRIBE_MAX_TOKENS", "2048"))
 
+    # Per-tribe vLLM endpoint URLs (comma-separated, length must equal NUM_TRIBES).
+    # When set, each tribe sends requests to its own vLLM instance.
+    # Example: MCN_TRIBE_URLS=http://vllm-small:8000/v1,http://vllm:8000/v1,http://vllm:8000/v1
+    # If unset (or wrong length), all tribes fall back to VLLM_BASE_URL.
+    TRIBE_URLS: list[str] = [
+        u.strip() for u in os.getenv("MCN_TRIBE_URLS", "").split(",") if u.strip()
+    ]
+
+    # Per-tribe model names (comma-separated, length must equal NUM_TRIBES).
+    # Example: MCN_TRIBE_MODELS=Qwen/Qwen2.5-Coder-1.5B-Instruct,Qwen/Qwen2.5-Coder-7B-Instruct-AWQ,...
+    # If unset (or wrong length), all tribes fall back to VLLM_MODEL.
+    TRIBE_MODELS: list[str] = [
+        m.strip() for m in os.getenv("MCN_TRIBE_MODELS", "").split(",") if m.strip()
+    ]
+
     # Per-tribe temperatures (comma-separated, length must equal NUM_TRIBES).
     # When set, each tribe is initialised with a different sampling temperature,
     # creating genuine behavioural diversity that the router can exploit.

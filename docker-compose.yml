@@ -35,7 +35,7 @@ services:
     command: >
       --model ${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
       --max-model-len 4096
-      --gpu-memory-utilization 0.90
+      --gpu-memory-utilization ${MCN_VLLM_GPU_UTIL:-0.55}
       --dtype auto
       --quantization awq
       --trust-remote-code
@@ -53,6 +53,41 @@ services:
       timeout: 10s
       retries: 10
       start_period: 180s    # models can take 2-3 min to load
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # vLLM Small: Second LLM instance for Phase 3 model diversity
+  # Phase 3: T0=1.5B (small/fast), T1=T2=7B (current)
+  # GPU memory split: vllm=0.55, vllm-small=0.40
+  # Adjust MCN_VLLM_GPU_UTIL / MCN_VLLM_SMALL_GPU_UTIL for your GPU.
+  # --------------------------------------------------------
+  vllm-small:
+    image: vllm/vllm-openai:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    command: >
+      --model ${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct}
+      --max-model-len 4096
+      --gpu-memory-utilization ${MCN_VLLM_SMALL_GPU_UTIL:-0.40}
+      --dtype auto
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
     restart: unless-stopped
 
   # --------------------------------------------------------
@@ -128,6 +163,8 @@ services:
     depends_on:
       vllm:
         condition: service_healthy
+      vllm-small:
+        condition: service_healthy
       redis:
         condition: service_healthy
       chromadb:
@@ -143,6 +180,9 @@ services:
       # (the .env file uses localhost URLs for standalone usage)
       - GIT_PYTHON_REFRESH=quiet
       - MCN_VLLM_URL=http://vllm:8000/v1
+      - MCN_TRIBE_URLS=http://vllm-small:8000/v1,http://vllm:8000/v1,http://vllm:8000/v1
+      - MCN_TRIBE_MODELS=${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct},${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ},${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
+      - MCN_TRIBE_TEMPERATURES=0.3,0.3,0.7
       - MCN_REDIS_URL=redis://redis:6379/0
       - MCN_USE_REDIS=true
       - MCN_SANDBOX_TMPDIR=/dev/shm

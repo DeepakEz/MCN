@@ -148,6 +148,7 @@ class TribeActor:
         max_tokens: int = 2048,
         use_mock: bool = False,
         failure_bias: str = "",
+        vllm_base_url: str = "",
     ) -> None:
         self.tribe_id = tribe_id
         self.system_prompt = system_prompt
@@ -155,6 +156,7 @@ class TribeActor:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.use_mock = use_mock
+        self.vllm_base_url = vllm_base_url or MCNConfig.VLLM_BASE_URL
 
         # failure_bias: when set (e.g. "memory", "timeout", "index"),
         # mock mode will inject a bug when the task description contains
@@ -251,7 +253,7 @@ class TribeActor:
             from openai import OpenAI
 
             client = OpenAI(
-                base_url=MCNConfig.VLLM_BASE_URL,
+                base_url=self.vllm_base_url,
                 api_key=MCNConfig.VLLM_API_KEY,
             )
 
