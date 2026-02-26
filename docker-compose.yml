@@ -34,11 +34,12 @@ services:
     # No host port needed — mcn-runner connects via internal Docker network
     command: >
       --model ${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
-      --max-model-len 2048
-      --gpu-memory-utilization ${MCN_VLLM_GPU_UTIL:-0.55}
+      --max-model-len 768
+      --gpu-memory-utilization ${MCN_VLLM_GPU_UTIL:-0.45}
       --dtype auto
       --quantization awq
       --trust-remote-code
+      --enforce-eager
     deploy:
       resources:
         reservations:
@@ -56,10 +57,13 @@ services:
     restart: unless-stopped
 
   # --------------------------------------------------------
-  # vLLM Small: Second LLM instance for Phase 3 model diversity
-  # Phase 3: T0=1.5B (small/fast), T1=T2=7B (current)
-  # GPU memory split: vllm=0.55, vllm-small=0.40
-  # Adjust MCN_VLLM_GPU_UTIL / MCN_VLLM_SMALL_GPU_UTIL for your GPU.
+  # vLLM Small: T1 = Qwen2.5-Coder-1.5B-Instruct
+  # Phase 3 (3-model): T0=0.5B, T1=1.5B, T2=7B-AWQ
+  # Starts after vllm (7B) is healthy to avoid simultaneous OOM.
+  # WSL2 VRAM isolation: each container sees only its own CUDA allocations.
+  # gpu_util formula: available_kv = util × total - own_profiling_peak.
+  # 1.5B profiling peak ≈ 3085 MiB; util=0.22 → available_kv = 502 MiB (enough).
+  # Key: vllm-1 must be fully healthy before vllm-small starts (see depends_on).
   # --------------------------------------------------------
   vllm-small:
     image: vllm/vllm-openai:latest
@@ -70,12 +74,15 @@ services:
       - huggingface-cache:/root/.cache/huggingface
     command: >
       --model ${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct}
-      --max-model-len 1536
-      --gpu-memory-utilization ${MCN_VLLM_SMALL_GPU_UTIL:-0.30}
+      --max-model-len 768
+      --gpu-memory-utilization ${MCN_VLLM_SMALL_GPU_UTIL:-0.22}
       --dtype auto
       --trust-remote-code
       --enforce-eager
       --max-num-seqs 2
+    depends_on:
+      vllm:
+        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -90,6 +97,44 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
+    restart: unless-stopped
+
+  # --------------------------------------------------------
+  # vLLM Tiny: T0 = Qwen2.5-Coder-0.5B-Instruct
+  # Smallest model; starts last after vllm-small is healthy
+  # --------------------------------------------------------
+  vllm-tiny:
+    image: vllm/vllm-openai:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    command: >
+      --model ${MCN_VLLM_TINY_MODEL:-Qwen/Qwen2.5-Coder-0.5B-Instruct}
+      --max-model-len 768
+      --gpu-memory-utilization ${MCN_VLLM_TINY_GPU_UTIL:-0.15}
+      --dtype auto
+      --trust-remote-code
+      --enforce-eager
+      --max-num-seqs 1
+    depends_on:
+      vllm-small:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
     restart: unless-stopped
 
   # --------------------------------------------------------
@@ -167,6 +212,8 @@ services:
         condition: service_healthy
       vllm-small:
         condition: service_healthy
+      vllm-tiny:
+        condition: service_healthy
       redis:
         condition: service_healthy
       chromadb:
@@ -182,9 +229,10 @@ services:
       # (the .env file uses localhost URLs for standalone usage)
       - GIT_PYTHON_REFRESH=quiet
       - MCN_VLLM_URL=http://vllm:8000/v1
-      - MCN_TRIBE_URLS=http://vllm-small:8000/v1,http://vllm:8000/v1,http://vllm:8000/v1
-      - MCN_TRIBE_MODELS=${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct},${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ},${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
-      - MCN_TRIBE_TEMPERATURES=0.3,0.3,0.7
+      - MCN_TRIBE_URLS=http://vllm-tiny:8000/v1,http://vllm-small:8000/v1,http://vllm:8000/v1
+      - MCN_TRIBE_MODELS=${MCN_VLLM_TINY_MODEL:-Qwen/Qwen2.5-Coder-0.5B-Instruct},${MCN_VLLM_SMALL_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct},${MCN_VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct-AWQ}
+      - MCN_TRIBE_TEMPERATURES=0.3,0.3,0.3
+      - MCN_TRIBE_MAX_TOKENS=350
       - MCN_REDIS_URL=redis://redis:6379/0
       - MCN_USE_REDIS=true
       - MCN_SANDBOX_TMPDIR=/dev/shm

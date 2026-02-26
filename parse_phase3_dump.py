@@ -1,9 +1,9 @@
 """Parse redis-cli XRANGE text dump -> categorized_runs_phase3.jsonl
 
-Phase 3: CTS router + heterogeneous base models
-  T0 = Qwen2.5-Coder-1.5B-Instruct  (small, temp=0.3)
-  T1 = Qwen2.5-Coder-7B-Instruct-AWQ (large, temp=0.3)
-  T2 = Qwen2.5-Coder-7B-Instruct-AWQ (large, temp=0.7)
+Phase 3: CTS router + heterogeneous base models (3 distinct model sizes)
+  T0 = Qwen2.5-Coder-0.5B-Instruct   (tiny,  temp=0.3)
+  T1 = Qwen2.5-Coder-1.5B-Instruct   (small, temp=0.3)
+  T2 = Qwen2.5-Coder-7B-Instruct-AWQ (large, temp=0.3)
 Dump:     docker exec mcn-redis-1 redis-cli XRANGE mcn:runs - + > phase3_raw_dump.txt
 """
 import json
@@ -35,13 +35,13 @@ TASK_CATEGORY_MAP = {
     "single_number": "math", "is_perfect_square": "math",
 }
 
-# Phase 3 tribe descriptions
+# Phase 3 tribe descriptions (3 genuinely different models)
 TRIBE_MODELS = {
-    0: "1.5B",
-    1: "7B",
-    2: "7B-hot",
+    0: "0.5B",
+    1: "1.5B",
+    2: "7B",
 }
-TRIBE_TEMPS = {0: 0.3, 1: 0.3, 2: 0.7}
+TRIBE_TEMPS = {0: 0.3, 1: 0.3, 2: 0.3}
 
 STREAM_ID_RE = re.compile(r"^\d+-\d+$")
 
@@ -126,7 +126,7 @@ for rec in records:
     if rec.get("verdict") == "PASS":
         by_tribe[t]["pass"] += 1
 
-print(f"\nPer-tribe routing (Phase 3: T0=1.5B, T1=7B, T2=7B-hot):")
+print(f"\nPer-tribe routing (Phase 3: T0=0.5B, T1=1.5B, T2=7B):")
 for t in sorted(by_tribe):
     s = by_tribe[t]
     pct_pass  = 100 * s["pass"]  / s["total"] if s["total"] else 0
