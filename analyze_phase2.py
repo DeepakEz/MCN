@@ -63,10 +63,17 @@ def load_runs(path: Path) -> list[dict]:
     return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
 
 
+def _is_pass(r: dict) -> bool:
+    """Normalise pass/fail across Phase 1C (verdict field) and Phase 2 (passed field)."""
+    if "passed" in r:
+        return bool(r["passed"])
+    return r.get("verdict") == "PASS"
+
+
 def compute_stats(runs: list[dict]) -> dict:
     """Aggregate stats for a run set."""
     total = len(runs)
-    passed = sum(1 for r in runs if r.get("passed", False))
+    passed = sum(1 for r in runs if _is_pass(r))
 
     # Per-category
     cat_total:  dict[str, int] = defaultdict(int)
@@ -86,7 +93,7 @@ def compute_stats(runs: list[dict]) -> dict:
     for r in runs:
         cat   = r.get("category", "unknown")
         t_idx = int(r.get("tribe_idx", 0))
-        ok    = bool(r.get("passed", False))
+        ok    = _is_pass(r)
 
         cat_total[cat]  += 1
         cat_pass[cat]   += ok
