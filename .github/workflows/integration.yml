@@ -14,6 +14,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create .env from template
+        # docker-compose.yml loads env_file: .env, which is never committed.
+        run: cp .env.example .env
+
       - name: Validate docker-compose syntax
         run: docker compose config --quiet
 
