@@ -24,6 +24,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
+          # No requirements.txt or pyproject.toml exists, so key the pip cache on
+          # this workflow, which lists the dependencies installed below.
+          cache-dependency-path: .github/workflows/test.yml
 
       - name: Install core dependencies
         run: |
